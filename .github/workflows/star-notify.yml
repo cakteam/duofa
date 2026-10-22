@@ -1,0 +1,51 @@
+name: Star 通知
+
+on:
+  watch:
+    types: [started]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: star-notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 记录 star
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '📢 Star 提醒记录（机器人自动维护，请勿关闭）';
+            const sender = context.payload.sender.login;
+            const total = context.payload.repository.stargazers_count;
+            const body = `⭐ ${sender} 给仓库点了一个 star！当前 star 数：${total}`;
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              creator: 'github-actions[bot]',
+              per_page: 100,
+            });
+            const existing = openIssues.find((i) => i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body:
+                  '这个 issue 由 Star 通知工作流自动维护：每有人点一次 star，就会在这里追加一条评论，' +
+                  '仓库主人通过 GitHub 的邮件通知收到提醒。\n\n' +
+                  body,
+              });
+            }
