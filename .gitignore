@@ -1,0 +1,19 @@
+# 依赖
+node_modules
+
+# 平台登录态（独立 Chrome 的用户数据目录）——绝不能提交
+chrome-profile/
+
+# 本机配置与运行状态
+config.json
+.duofa/
+logs/
+
+# 「数据」页下载的数据（含账号后台数据）
+数据下载/
+
+# 系统 / 编辑器
+.DS_Store
+.claude/
+.vscode/
+.idea/

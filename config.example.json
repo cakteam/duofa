@@ -1,0 +1,9 @@
+{
+  "contentDir": "~/Movies/我的视频",
+  "dataDir": "",
+  "port": 8686,
+  "channels": {
+    "hideLocation": true,
+    "declareOriginal": false
+  }
+}

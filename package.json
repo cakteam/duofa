@@ -1,0 +1,21 @@
+{
+  "name": "duofa",
+  "version": "0.1.0",
+  "description": "多发：视频号 / 抖音 / 快手 / B站 一键填表 + 定时 + 数据看板。工具填好，你来点发表。",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "playwright-core": "^1.63.0"
+  }
+}
