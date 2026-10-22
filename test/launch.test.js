@@ -98,7 +98,8 @@ test('自动退出：把独立 Chrome 关掉（用户关窗口 / 退出 Chrome�
     await uiLoaded(s);
     // 既有接口：关闭自动化 Chrome（等同用户把整个 Chrome 关了）
     const t0 = Date.now();
-    await fetch(`${s.base}/api/browser/close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    // 机器慢时，服务可能在回这次请求之前就因为“浏览器关了”自己退出了——那正是要测的结果，请求本身失败不算错
+    await fetch(`${s.base}/api/browser/close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
     const code = await Promise.race([s.exited, sleep(20000).then(() => 'timeout')]);
     assert.strictEqual(code, 0, `应自动退出，实际：${code}\n${s.out()}`);
     assert.ok(Date.now() - t0 >= 700, '有宽限时间，不是立刻退出');
@@ -123,7 +124,8 @@ test('Chrome 在打开界面的过程中被关掉：不会退回去开系统默�
   try {
     // 界面标签页一确定（页面还没加载完）就把 Chrome 关掉，复现“打开到一半被关”的竞态
     await until(async () => (await s.call('GET', '/api/app/status')).json.browser.uiOpen, 40000, '界面标签页确定');
-    await fetch(`${s.base}/api/browser/close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    // 机器慢时，服务可能在回这次请求之前就因为“浏览器关了”自己退出了——那正是要测的结果，请求本身失败不算错
+    await fetch(`${s.base}/api/browser/close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
     const code = await Promise.race([s.exited, sleep(20000).then(() => 'timeout')]);
     assert.strictEqual(code, 0, `应自动退出，实际：${code}\n${s.out()}`);
     assert.strictEqual(s.opened(), '', '没有去开系统默认浏览器');

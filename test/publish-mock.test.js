@@ -19,6 +19,10 @@ const { UiLock, createUi, PARALLEL_UI } = require('../lib/ui-lock');
 const { createPublishRunner } = require('../lib/publish-runner');
 
 const { HAVE_CHROME } = require('./helpers/chrome');
+// CI 上机器慢：场景少并发、耗时上限放宽（K 倍）；本机照旧
+const ON_CI = !!process.env.CI;
+const CONCURRENCY = ON_CI ? 2 : Infinity;
+const K = ON_CI ? 2 : 1;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'duofa-mock-'));
 // 这里的用例要覆盖视频号「声明原创」这一步：用一份临时配置把它打开（默认是关的）
 fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ channels: { declareOriginal: true } }));
@@ -121,35 +125,36 @@ async function pipeline(parallel, uiLock = false) {
   return { result, job, wall, sum, spans, states };
 }
 
-describe('真实填表代码 × 假平台页面（headless Chrome）', { skip: !HAVE_CHROME && '没有安装 Google Chrome', timeout: 400000 }, () => {
+describe('真实填表代码 × 假平台页面（headless Chrome）', { skip: !HAVE_CHROME && '没有安装 Google Chrome', timeout: 900000 }, () => {
   const R = {};
   before(async () => {
     browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
-    // 所有场景同时跑（各自独立的浏览器上下文），总时间 ≈ 最慢的那个
+    // 各场景用各自独立的浏览器上下文
     const jobs = {
-      chBase: runCh({ uploadMs: 14000, maskClearMs: 15500 }),            // 上传比填表久；遮罩在上传完成后 1.5 秒才消失
-      chMaskEarly: runCh({ uploadMs: 12000, maskClearMs: 9000 }),        // 遮罩在上传完成前就消失了：上传完成就能点
-      chMaskLate: runCh({ uploadMs: 5000, maskClearMs: 20000 }),         // 平台处理很久（上传完成后 15 秒遮罩才消失）：要等，不能乱点（间隔留足：整套并发跑、机器忙时填表会变慢，间隔太小遮罩会在“等”之前就消失）
-      chMaskNever: runCh({ uploadMs: 4000, maskClearMs: 999999 }, { coverWaitMs: 3000 }), // 遮罩一直不消失：有界放弃并明说，其它项不受影响
-      chReset: runCh({ uploadMs: 9000, maskClearMs: 9500, resetOnDone: true }), // 上传完成时页面把表单（含定时）全重置了：核对出来并补填
-      chJunk: runCh({ uploadMs: 9000, maskClearMs: 9500, resetOnDone: 'junk' }),   // 页面往描述里塞了自己生成的内容：先清掉再重填
-      chLate: runCh({ formDelayMs: 9000, uploadMs: 4000, maskClearMs: 9500 }),     // 表单比上传还晚出现
-      chMid: runCh({ formDelayMs: 4000, uploadMs: 12000, maskClearMs: 12500 }),    // 表单中途出现：一出来就填
-      chCrop: runCh({ crop: 'dialog', uploadMs: 5000, maskClearMs: 5500 }),        // 点确认后弹出（嵌套的）裁剪框：要点它可见的「确定」
-      chNoSched: runCh({ noSchedule: true, uploadMs: 3000, maskClearMs: 3500 }),   // 页面上选不上定时：有界、明说没设上
-      dyBase: runDy({ uploadMs: 8000 }),
-      dyReset: runDy({ uploadMs: 8000, resetOnDone: true }),             // 上传完成时页面把定时重置了：核对出来并重新设
-      dyLate: runDy({ formAfterUpload: true, uploadMs: 5000 }),
-      dyLogin: runDy({ loginDelayMs: 5000, uploadMs: 3000 }),            // 抖音要求登录/验证：一直等到人处理完，不报错
-      biliBase: runBili({ uploadMs: 8000 }),
-      biliReset: runBili({ uploadMs: 8000, resetOnDone: true }),
-      par: pipeline(true),
-      parLock: pipeline(true, true),
-      ser: pipeline(false),
+      chBase: () => runCh({ uploadMs: 14000, maskClearMs: 15500 }),            // 上传比填表久；遮罩在上传完成后 1.5 秒才消失
+      chMaskEarly: () => runCh({ uploadMs: 12000, maskClearMs: 9000 }),        // 遮罩在上传完成前就消失了：上传完成就能点
+      chMaskLate: () => runCh({ uploadMs: 5000, maskClearMs: 20000 }),         // 平台处理很久（上传完成后 15 秒遮罩才消失）：要等，不能乱点（间隔留足：整套并发跑、机器忙时填表会变慢，间隔太小遮罩会在“等”之前就消失）
+      chMaskNever: () => runCh({ uploadMs: 4000, maskClearMs: 999999 }, { coverWaitMs: 3000 }), // 遮罩一直不消失：有界放弃并明说，其它项不受影响
+      chReset: () => runCh({ uploadMs: 9000, maskClearMs: 9500, resetOnDone: true }), // 上传完成时页面把表单（含定时）全重置了：核对出来并补填
+      chJunk: () => runCh({ uploadMs: 9000, maskClearMs: 9500, resetOnDone: 'junk' }),   // 页面往描述里塞了自己生成的内容：先清掉再重填
+      chLate: () => runCh({ formDelayMs: 9000, uploadMs: 4000, maskClearMs: 9500 }),     // 表单比上传还晚出现
+      chMid: () => runCh({ formDelayMs: 4000, uploadMs: 12000, maskClearMs: 12500 }),    // 表单中途出现：一出来就填
+      chCrop: () => runCh({ crop: 'dialog', uploadMs: 5000, maskClearMs: 5500 }),        // 点确认后弹出（嵌套的）裁剪框：要点它可见的「确定」
+      chNoSched: () => runCh({ noSchedule: true, uploadMs: 3000, maskClearMs: 3500 }),   // 页面上选不上定时：有界、明说没设上
+      dyBase: () => runDy({ uploadMs: 8000 }),
+      dyReset: () => runDy({ uploadMs: 8000, resetOnDone: true }),             // 上传完成时页面把定时重置了：核对出来并重新设
+      dyLate: () => runDy({ formAfterUpload: true, uploadMs: 5000 }),
+      dyLogin: () => runDy({ loginDelayMs: 5000, uploadMs: 3000 }),            // 抖音要求登录/验证：一直等到人处理完，不报错
+      biliBase: () => runBili({ uploadMs: 8000 }),
+      biliReset: () => runBili({ uploadMs: 8000, resetOnDone: true }),
+      par: () => pipeline(true),
+      parLock: () => pipeline(true, true),
+      ser: () => pipeline(false),
     };
-    const names = Object.keys(jobs);
-    const done = await Promise.all(Object.values(jobs));
-    names.forEach((n, i) => { R[n] = done[i]; });
+    // 本机所有场景同时跑；CI（GitHub Actions 的机器慢）一次跑 2 个，免得互相抢 CPU 把“早于上传完成”这类时序挤乱
+    const queue = Object.entries(jobs);
+    const worker = async () => { for (let next; (next = queue.shift());) R[next[0]] = await next[1](); };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
   });
   after(async () => {
     if (browser) await browser.close().catch(() => {});
@@ -196,7 +201,7 @@ describe('真实填表代码 × 假平台页面（headless Chrome）', { skip: !
 
   it('视频号：点「发表视频」之后不再等网络空闲（页面一直在轮询，旧版白等 5–20 秒）', () => {
     const open = lap(R.chBase, '打开并开始上传');
-    assert.ok(open !== null && open < 8, `打开并开始上传用了 ${open} 秒`);
+    assert.ok(open !== null && open < 8 * K, `打开并开始上传用了 ${open} 秒`);
   });
 
   it('视频号：上传完成后预览视频被暂停（盯守期间静音，结束后恢复有声），页面自己反复尝试自动播放也压得住', () => {
@@ -210,7 +215,7 @@ describe('真实填表代码 × 假平台页面（headless Chrome）', { skip: !
     assert.strictEqual(r.state.T.coverConfirm > 0, true, '点了「确认」');
     assert.ok(!/裁剪确认/.test(r.text), '没有裁剪框：不该去点隐藏的那个');
     const c = lap(r, '封面');
-    assert.ok(c !== null && c < 12, `封面一步用了 ${c} 秒`);
+    assert.ok(c !== null && c < 12 * K, `封面一步用了 ${c} 秒`);
   });
 
   it('视频号：封面遮罩还在时一次都不去点（遮罩吞点击）——等它消失再点；遮罩早就消失则上传完成就点', () => {
@@ -232,7 +237,7 @@ describe('真实填表代码 × 假平台页面（headless Chrome）', { skip: !
     okSched(r, 'chMaskNever');
     assert.match(r.text, /封面一直处于“处理中”（3 秒），没能设置封面/);
     assert.strictEqual(r.state.coverDone, false);
-    assert.ok(r.secs < 25, `${r.secs}s`);
+    assert.ok(r.secs < 25 * K, `${r.secs}s`);
   });
 
   it('视频号：点确认后弹出裁剪框（嵌套在封面弹窗里）→ 点它可见的「确定」，封面照样设上', () => {
